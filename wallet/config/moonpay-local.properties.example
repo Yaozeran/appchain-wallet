@@ -1,0 +1,12 @@
+# Copy to moonpay-local.properties in this directory. Never commit the real keys.
+# Use the pk_test_ and sk_test_ keys from your MoonPay developer dashboard.
+moonpay.environment=sandbox
+moonpay.publishable-key=
+moonpay.secret-key=
+# MoonPay can require IP matching in sandbox too.
+moonpay.ip-matching=true
+# For local, single-developer sandbox testing: this browser's public IP.
+# Ignored in production; production must use a trusted ingress.
+moonpay.sandbox-client-ip=
+# In production, explicitly list ingress socket IPs that overwrite True-Client-IP.
+moonpay.trusted-proxies=

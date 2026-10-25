@@ -1,0 +1,7 @@
+# For running Java directly. Copy to transak-local.properties (ignored by Git).
+transak.environment=staging
+transak.api-key=
+transak.api-secret=
+transak.referrer-domain=http://localhost:3000
+transak.sandbox-client-ip=
+transak.trusted-proxies=

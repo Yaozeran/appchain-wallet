@@ -1,0 +1,5 @@
+.local
+tools/node_modules
+tests
+README.md
+*.log

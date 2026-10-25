@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+APPCHAIN_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$APPCHAIN_ROOT"
+exec docker compose -f compose.yaml -f compose.appchain.yaml "$@"

@@ -1,0 +1,31 @@
+# ai
+.agent
+
+# c
+build
+
+# ide
+.vscode
+
+# macos
+._*
+.DS_Store
+
+# misc
+doc
+
+# Local Compose configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Private appchain operator keys, deployment artifacts and logs.
+appchain/.local/
+appchain/tools/node_modules/
+
+# Offline rollup engine dependencies (installed from lockfile)
+appchain/simulator/node_modules/
+
+# Generated Python bytecode
+__pycache__/
+*.py[cod]

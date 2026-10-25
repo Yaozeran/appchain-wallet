@@ -1,0 +1,112 @@
+name: wallet
+
+services:
+
+  rollup-test:
+    build:
+      context: ./appchain/simulator
+    networks: [offline-rollup]
+    mem_limit: 192m
+    cpus: 1
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: wallet
+      POSTGRES_USER: ${POSTGRES_USER:-wallet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wallet_local_demo}
+    volumes:
+      - wallet-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d wallet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./wallet
+    environment:
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: "8080"
+      DATABASE_URL: jdbc:postgresql://postgres:5432/wallet
+      POSTGRES_USER: ${POSTGRES_USER:-wallet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wallet_local_demo}
+      CUSTODY_FRONTEND_ORIGIN: ${CUSTODY_FRONTEND_ORIGIN:-http://localhost:${WEB_PORT:-3000}}
+      CUSTODY_SECURE_COOKIE: ${CUSTODY_SECURE_COOKIE:-false}
+      MOONPAY_ENVIRONMENT: ${MOONPAY_ENVIRONMENT:-sandbox}
+      MOONPAY_PUBLISHABLE_KEY: ${MOONPAY_PUBLISHABLE_KEY:-}
+      MOONPAY_SECRET_KEY: ${MOONPAY_SECRET_KEY:-}
+      MOONPAY_IP_MATCHING: ${MOONPAY_IP_MATCHING:-true}
+      MOONPAY_SANDBOX_CLIENT_IP: ${MOONPAY_SANDBOX_CLIENT_IP:-}
+      MOONPAY_TRUSTED_PROXIES: ${MOONPAY_TRUSTED_PROXIES:-}
+      TRANSAK_ENVIRONMENT: ${TRANSAK_ENVIRONMENT:-staging}
+      TRANSAK_API_KEY: ${TRANSAK_API_KEY:-}
+      TRANSAK_API_SECRET: ${TRANSAK_API_SECRET:-}
+      TRANSAK_REFERRER_DOMAIN: ${TRANSAK_REFERRER_DOMAIN:-http://localhost:${WEB_PORT:-3000}}
+      TRANSAK_SANDBOX_CLIENT_IP: ${TRANSAK_SANDBOX_CLIENT_IP:-}
+      TRANSAK_TRUSTED_PROXIES: ${TRANSAK_TRUSTED_PROXIES:-}
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:-https://ethereum-rpc.publicnode.com}
+      SEPOLIA_RPC_URL: ${SEPOLIA_RPC_URL:-https://ethereum-sepolia-rpc.publicnode.com}
+      OPTIMISM_RPC_URL: ${OPTIMISM_RPC_URL:-https://optimism-rpc.publicnode.com}
+      BITCOIN_API_URL: ${BITCOIN_API_URL:-https://mempool.space/api}
+      APPCHAIN_RPC_URL: ${APPCHAIN_RPC_URL:-http://op-reth:8545}
+      APPCHAIN_CHAIN_ID: ${APPCHAIN_CHAIN_ID:-42069}
+      PAYMENT_SIMULATOR_URL: http://rollup-test:8090
+    networks: [default, offline-rollup]
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8080/api/custody/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rollup-test:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./web
+      args:
+        # Next.js serializes rewrites at build time. Use Compose service DNS.
+        WALLET_API_URL: http://backend:8080
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    restart: unless-stopped
+    init: true
+
+volumes:
+  wallet-postgres:
+
+networks:
+  offline-rollup:
+    internal: true

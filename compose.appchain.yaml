@@ -1,0 +1,152 @@
+# Optional actual OP Stack services. Paths resolve from compose.yaml at the repo root.
+# docker compose -f compose.yaml -f compose.appchain.yaml --profile appchain ...
+services:
+  backend:
+    environment:
+      APPCHAIN_RPC_URL: http://op-reth:8545
+      APPCHAIN_CHAIN_ID: ${APPCHAIN_CHAIN_ID:-42069}
+
+  appchain-tools:
+    profiles: [appchain-tools]
+    build:
+      context: ./appchain/tools
+    environment:
+      APPCHAIN_CHAIN_ID: ${APPCHAIN_CHAIN_ID:-42069}
+      APPCHAIN_L1_RPC_URL: ${APPCHAIN_L1_RPC_URL:-}
+      APPCHAIN_DEPLOYMENT_RPC_URL: ${APPCHAIN_DEPLOYMENT_RPC_URL:-}
+      APPCHAIN_L1_BEACON_URL: ${APPCHAIN_L1_BEACON_URL:-}
+    volumes:
+      - type: bind
+        source: ./appchain/.local
+        target: /data
+        bind:
+          create_host_path: false
+    networks: [default]
+
+  op-reth:
+    profiles: [appchain]
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-reth:v2.4.0
+    # Local development only; generated 0600 files belong to the setup container.
+    user: "0:0"
+    command:
+      - node
+      - --chain=/config/genesis.json
+      - --datadir=/data
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8545
+      - --http.api=eth,net,web3
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/run/secrets/jwt
+      - --rollup.disable-tx-pool-gossip
+      - --builder.deadline=2
+      - --builder.interval=100ms
+    ports: ["127.0.0.1:${APPCHAIN_RPC_PORT:-9545}:8545"]
+    volumes:
+      - type: bind
+        source: ./appchain/.local/runtime/genesis.json
+        target: /config/genesis.json
+        read_only: true
+        bind: {create_host_path: false}
+      - appchain-reth:/data
+    secrets:
+      - source: appchain-jwt
+        target: jwt
+    # Secrets are mounted at explicit paths below through service-specific aliases.
+    mem_limit: ${APPCHAIN_RETH_MEMORY:-1536m}
+    cpus: 2
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [NET_RAW]
+
+  op-node:
+    profiles: [appchain]
+    build:
+      context: ./appchain
+      dockerfile: Runtime.Dockerfile
+      target: op-node
+    environment:
+      OP_NODE_L1_ETH_RPC: ${APPCHAIN_L1_RPC_URL:-}
+      OP_NODE_L1_BEACON: ${APPCHAIN_L1_BEACON_URL:-}
+    command:
+      - --l2=http://op-reth:8551
+      - --l2.jwt-secret=/run/secrets/jwt
+      - --l2.enginekind=reth
+      - --rollup.config=/config/rollup.json
+      - --sequencer.enabled=true
+      - --sequencer.stopped=false
+      - --sequencer.max-safe-lag=64
+      - --verifier.l1-confs=4
+      - --p2p.disable
+      - --rpc.addr=0.0.0.0
+      - --rpc.port=8547
+      - --metrics.enabled
+      - --metrics.addr=0.0.0.0
+      - --metrics.port=7300
+      - --log.level=info
+    ports: ["127.0.0.1:${APPCHAIN_NODE_PORT:-9547}:8547"]
+    volumes:
+      - type: bind
+        source: ./appchain/.local/runtime/rollup.json
+        target: /config/rollup.json
+        read_only: true
+        bind: {create_host_path: false}
+    secrets:
+      - source: appchain-jwt
+        target: jwt
+      - appchain-sequencer-key
+    depends_on: [op-reth]
+    mem_limit: ${APPCHAIN_NODE_MEMORY:-384m}
+    cpus: 1
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [NET_RAW]
+    read_only: true
+    tmpfs: [/tmp]
+
+  op-batcher:
+    # Never starts with the appchain profile alone: explicitly opt into L1 writes.
+    profiles: [appchain-publish]
+    build:
+      context: ./appchain
+      dockerfile: Runtime.Dockerfile
+      target: op-batcher
+    environment:
+      OP_BATCHER_L1_ETH_RPC: ${APPCHAIN_L1_RPC_URL:-}
+    command:
+      - --l2-eth-rpc=http://op-reth:8545
+      - --rollup-rpc=http://op-node:8547
+      - --poll-interval=2s
+      - --max-channel-duration=4
+      - --sub-safety-margin=10
+      - --num-confirmations=1
+      - --data-availability-type=calldata
+      - --batch-type=1
+      - --compression-algo=zlib
+      - --rpc.addr=127.0.0.1
+      - --rpc.port=8548
+      - --metrics.enabled
+      - --metrics.addr=0.0.0.0
+      - --metrics.port=7300
+      - --log.level=info
+    secrets: [appchain-batcher-key]
+    depends_on: [op-node]
+    mem_limit: ${APPCHAIN_BATCHER_MEMORY:-256m}
+    cpus: 1
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [NET_RAW]
+    read_only: true
+    tmpfs: [/tmp]
+
+volumes:
+  appchain-reth:
+
+secrets:
+  appchain-jwt:
+    file: ./appchain/.local/secrets/jwt
+  appchain-sequencer-key:
+    file: ./appchain/.local/secrets/sequencer.key
+  appchain-batcher-key:
+    file: ./appchain/.local/secrets/batcher.key
